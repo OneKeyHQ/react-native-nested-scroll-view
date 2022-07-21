@@ -66,8 +66,8 @@ android/app/build.gradle
 
     dependencies {
         implementation fileTree(dir: "libs", include: ["*.jar"])
-+       implementation 'com.android.support:appcompat-v7:27.1.1'
-+       implementation 'com.android.support:design:27.1.1'
++       implementation "androidx.appcompat:appcompat:1.3.1"
++	implementation 'com.google.android.material:material:1.6.1'
         implementation 'com.facebook.react:react-native:+'  // From node_modules
 +       implementation project(':react-native-nested-scroll-view')
     }
@@ -82,6 +82,17 @@ include ':app'
 
 +   include ':react-native-nested-scroll-view'
 +   project(':react-native-nested-scroll-view').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-nested-scroll-view/android')
+
+```
+
+android/settings.gradle (monorepo)
+
+```diff
+
+include ':app'
+
++   include ':react-native-nested-scroll-view'
++   project(':react-native-nested-scroll-view').projectDir = new File(rootProject.projectDir, '../../../node_modules/react-native-nested-scroll-view/android')
 
 ```
 

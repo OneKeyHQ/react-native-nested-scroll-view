@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -7,7 +7,7 @@
 
 package com.rnnestedscrollview;
 
-import android.annotation.TargetApi;
+import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Rect;
@@ -16,14 +16,13 @@ import android.graphics.drawable.Drawable;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewGroup;
+import android.widget.HorizontalScrollView;
 import android.widget.OverScroller;
 
+import androidx.core.text.TextUtilsCompat;
 import androidx.core.view.ViewCompat;
-import androidx.core.widget.NestedScrollView;
 
 import com.facebook.infer.annotation.Assertions;
-import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.common.ReactConstants;
 import com.facebook.react.uimanager.MeasureSpecAssertions;
 import com.facebook.react.uimanager.ReactClippingViewGroup;
@@ -37,20 +36,15 @@ import com.facebook.react.views.view.ReactViewBackgroundManager;
 
 import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Locale;
 
 import javax.annotation.Nullable;
 
 /**
- * Forked from https://github.com/facebook/react-native/blob/0.57-stable/ReactAndroid/src/main/java/com/facebook/react/views/scroll/ReactScrollView.java
- *
- * A simple subclass of ScrollView that doesn't dispatch measure and layout to its children and has
- * a scroll listener to send scroll events to JS.
- *
- * <p>ReactNestedScrollView only supports vertical scrolling. For horizontal scrolling,
- * use {@link ReactHorizontalScrollView}.
+ * Similar to {@link ReactScrollView} but only supports horizontal scrolling.
  */
-@TargetApi(11)
-public class ReactNestedScrollView extends NestedScrollView implements ReactClippingViewGroup, ViewGroup.OnHierarchyChangeListener, View.OnLayoutChangeListener {
+public class ReactHorizontalScrollView extends HorizontalScrollView implements
+    ReactClippingViewGroup {
 
   private static @Nullable Field sScrollerField;
   private static boolean sTriedToGetScrollerField = false;
@@ -58,7 +52,7 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
   private final OnScrollDispatchHelper mOnScrollDispatchHelper = new OnScrollDispatchHelper();
   private final VelocityHelper mVelocityHelper = new VelocityHelper();
   private final @Nullable OverScroller mScroller;
-  private final Rect mRect = new Rect(); // for reuse to avoid allocation
+  private final Rect mRect = new Rect();
 
   private boolean mActivelyScrolling;
   private @Nullable Rect mClippingRect;
@@ -69,30 +63,29 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
   private boolean mRemoveClippedSubviews;
   private boolean mScrollEnabled = true;
   private boolean mSendMomentumEvents;
-  private @Nullable FpsListener mFpsListener = null;
+  private @Nullable
+  FpsListener mFpsListener = null;
   private @Nullable String mScrollPerfTag;
   private @Nullable Drawable mEndBackground;
   private int mEndFillColor = Color.TRANSPARENT;
+  private boolean mDisableIntervalMomentum = false;
   private int mSnapInterval = 0;
   private float mDecelerationRate = 0.985f;
   private @Nullable List<Integer> mSnapOffsets;
   private boolean mSnapToStart = true;
   private boolean mSnapToEnd = true;
-  private View mContentView;
   private ReactViewBackgroundManager mReactBackgroundManager;
 
-  public ReactNestedScrollView(ReactContext context) {
+  public ReactHorizontalScrollView(Context context) {
     this(context, null);
   }
 
-  public ReactNestedScrollView(ReactContext context, @Nullable FpsListener fpsListener) {
+  public ReactHorizontalScrollView(Context context, @Nullable FpsListener fpsListener) {
     super(context);
-    mFpsListener = fpsListener;
     mReactBackgroundManager = new ReactViewBackgroundManager(this);
+    mFpsListener = fpsListener;
 
     mScroller = getOverScrollerFromParent();
-    setOnHierarchyChangeListener(this);
-    setScrollBarStyle(SCROLLBARS_OUTSIDE_OVERLAY);
   }
 
   @Nullable
@@ -102,12 +95,12 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
     if (!sTriedToGetScrollerField) {
       sTriedToGetScrollerField = true;
       try {
-        sScrollerField = NestedScrollView.class.getDeclaredField("mScroller");
+        sScrollerField = HorizontalScrollView.class.getDeclaredField("mScroller");
         sScrollerField.setAccessible(true);
       } catch (NoSuchFieldException e) {
         Log.w(
           ReactConstants.TAG,
-          "Failed to get mScroller field for ScrollView! " +
+          "Failed to get mScroller field for HorizontalScrollView! " +
             "This app will exhibit the bounce-back scrolling bug :(");
       }
     }
@@ -120,12 +113,12 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
         } else {
           Log.w(
             ReactConstants.TAG,
-            "Failed to cast mScroller field in ScrollView (probably due to OEM changes to AOSP)! " +
+            "Failed to cast mScroller field in HorizontalScrollView (probably due to OEM changes to AOSP)! " +
               "This app will exhibit the bounce-back scrolling bug :(");
           scroller = null;
         }
       } catch (IllegalAccessException e) {
-        throw new RuntimeException("Failed to get mScroller from ScrollView!", e);
+        throw new RuntimeException("Failed to get mScroller from HorizontalScrollView!", e);
       }
     } else {
       scroller = null;
@@ -134,12 +127,30 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
     return scroller;
   }
 
-  public void setSendMomentumEvents(boolean sendMomentumEvents) {
-    mSendMomentumEvents = sendMomentumEvents;
-  }
-
   public void setScrollPerfTag(@Nullable String scrollPerfTag) {
     mScrollPerfTag = scrollPerfTag;
+  }
+
+  @Override
+  public void setRemoveClippedSubviews(boolean removeClippedSubviews) {
+    if (removeClippedSubviews && mClippingRect == null) {
+      mClippingRect = new Rect();
+    }
+    mRemoveClippedSubviews = removeClippedSubviews;
+    updateClippingRect();
+  }
+
+  @Override
+  public boolean getRemoveClippedSubviews() {
+    return mRemoveClippedSubviews;
+  }
+
+  public void setDisableIntervalMomentum(boolean disableIntervalMomentum) {
+    mDisableIntervalMomentum = disableIntervalMomentum;
+  }
+
+  public void setSendMomentumEvents(boolean sendMomentumEvents) {
+    mSendMomentumEvents = sendMomentumEvents;
   }
 
   public void setScrollEnabled(boolean scrollEnabled) {
@@ -169,6 +180,7 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
   public void setSnapToStart(boolean snapToStart) {
     mSnapToStart = snapToStart;
   }
+
   public void setSnapToEnd(boolean snapToEnd) {
     mSnapToEnd = snapToEnd;
   }
@@ -180,6 +192,21 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
   public void setOverflow(String overflow) {
     mOverflow = overflow;
     invalidate();
+  }
+
+  @Override
+  protected void onDraw(Canvas canvas) {
+    getDrawingRect(mRect);
+
+    switch (mOverflow) {
+      case ViewProps.VISIBLE:
+        break;
+      default:
+        canvas.clipRect(mRect);
+        break;
+    }
+
+    super.onDraw(canvas);
   }
 
   @Override
@@ -196,23 +223,6 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
     // Call with the present values in order to re-layout if necessary
     scrollTo(getScrollX(), getScrollY());
   }
-
-  @Override
-  protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-    super.onSizeChanged(w, h, oldw, oldh);
-    if (mRemoveClippedSubviews) {
-      updateClippingRect();
-    }
-  }
-
-//  Not Working with NestedScrollView
-//  @Override
-//  protected void onAttachedToWindow() {
-//    super.onAttachedToWindow();
-//    if (mRemoveClippedSubviews) {
-//      updateClippingRect();
-//    }
-//  }
 
   @Override
   protected void onScrollChanged(int x, int y, int oldX, int oldY) {
@@ -274,17 +284,66 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
   }
 
   @Override
-  public void setRemoveClippedSubviews(boolean removeClippedSubviews) {
-    if (removeClippedSubviews && mClippingRect == null) {
-      mClippingRect = new Rect();
+  public void fling(int velocityX) {
+
+    // Workaround.
+    // On Android P if a ScrollView is inverted, we will get a wrong sign for
+    // velocityX (see https://issuetracker.google.com/issues/112385925). 
+    // At the same time, mOnScrollDispatchHelper tracks the correct velocity direction. 
+    //
+    // Hence, we can use the absolute value from whatever the OS gives
+    // us and use the sign of what mOnScrollDispatchHelper has tracked.
+    final int correctedVelocityX = (int)(Math.abs(velocityX) * Math.signum(mOnScrollDispatchHelper.getXFlingVelocity()));
+
+    if (mPagingEnabled) {
+      flingAndSnap(correctedVelocityX);
+    } else if (mScroller != null) {
+      // FB SCROLLVIEW CHANGE
+
+      // We provide our own version of fling that uses a different call to the standard OverScroller
+      // which takes into account the possibility of adding new content while the ScrollView is
+      // animating. Because we give essentially no max X for the fling, the fling will continue as long
+      // as there is content. See #onOverScrolled() to see the second part of this change which properly
+      // aborts the scroller animation when we get to the bottom of the ScrollView content.
+
+      int scrollWindowWidth = getWidth() - ViewCompat.getPaddingStart(this) - ViewCompat.getPaddingEnd(this);
+
+      mScroller.fling(
+        getScrollX(), // startX
+        getScrollY(), // startY
+        correctedVelocityX, // velocityX
+        0, // velocityY
+        0, // minX
+        Integer.MAX_VALUE, // maxX
+        0, // minY
+        0, // maxY
+        scrollWindowWidth / 2, // overX
+        0 // overY
+      );
+
+      ViewCompat.postInvalidateOnAnimation(this);
+
+      // END FB SCROLLVIEW CHANGE
+    } else {
+      super.fling(correctedVelocityX);
     }
-    mRemoveClippedSubviews = removeClippedSubviews;
-    updateClippingRect();
+    handlePostTouchScrolling(correctedVelocityX, 0);
   }
 
   @Override
-  public boolean getRemoveClippedSubviews() {
-    return mRemoveClippedSubviews;
+  protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+    super.onSizeChanged(w, h, oldw, oldh);
+    if (mRemoveClippedSubviews) {
+      updateClippingRect();
+    }
+  }
+
+  @Override
+  protected void onAttachedToWindow() {
+    super.onAttachedToWindow();
+    if (mRemoveClippedSubviews) {
+      updateClippingRect();
+    }
   }
 
   @Override
@@ -307,57 +366,40 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
     outClippingRect.set(Assertions.assertNotNull(mClippingRect));
   }
 
-  @Override
-  public void fling(int velocityY) {
-    // Workaround.
-    // On Android P if a ScrollView is inverted, we will get a wrong sign for
-    // velocityY (see https://issuetracker.google.com/issues/112385925). 
-    // At the same time, mOnScrollDispatchHelper tracks the correct velocity direction. 
-    //
-    // Hence, we can use the absolute value from whatever the OS gives
-    // us and use the sign of what mOnScrollDispatchHelper has tracked.
-    float signum = Math.signum(mOnScrollDispatchHelper.getYFlingVelocity());
-    if (signum == 0) {
-      signum = Math.signum(velocityY);
+  private int getSnapInterval() {
+    if (mSnapInterval != 0) {
+      return mSnapInterval;
     }
-    final int correctedVelocityY = (int)(Math.abs(velocityY) * signum);
+    return getWidth();
+  }
 
-    if (mPagingEnabled) {
-      flingAndSnap(correctedVelocityY);
-    } else if (mScroller != null) {
+  public void setEndFillColor(int color) {
+    if (color != mEndFillColor) {
+      mEndFillColor = color;
+      mEndBackground = new ColorDrawable(mEndFillColor);
+    }
+  }
+
+  @Override
+  protected void onOverScrolled(int scrollX, int scrollY, boolean clampedX, boolean clampedY) {
+    if (mScroller != null) {
       // FB SCROLLVIEW CHANGE
 
-      // We provide our own version of fling that uses a different call to the standard OverScroller
-      // which takes into account the possibility of adding new content while the ScrollView is
-      // animating. Because we give essentially no max Y for the fling, the fling will continue as long
-      // as there is content. See #onOverScrolled() to see the second part of this change which properly
-      // aborts the scroller animation when we get to the bottom of the ScrollView content.
+      // This is part two of the reimplementation of fling to fix the bounce-back bug. See #fling() for
+      // more information.
 
-      int scrollWindowHeight = getHeight() - getPaddingBottom() - getPaddingTop();
+      if (!mScroller.isFinished() && mScroller.getCurrX() != mScroller.getFinalX()) {
+        int scrollRange = computeHorizontalScrollRange() - getWidth();
+        if (scrollX >= scrollRange) {
+          mScroller.abortAnimation();
+          scrollX = scrollRange;
+        }
+      }
 
-      mScroller.fling(
-        getScrollX(), // startX
-        getScrollY(), // startY
-        0, // velocityX
-        correctedVelocityY, // velocityY
-        0, // minX
-        0, // maxX
-        0, // minY
-        Integer.MAX_VALUE, // maxY
-        0, // overX
-        scrollWindowHeight / 2 // overY
-      );
-
-      ViewCompat.postInvalidateOnAnimation(this);
-
-      // RNNestedScrollView CHANGE (Should we use correctedVelocityY here as well?)
-      // Fixed fling issue on support library 26 (see issue https://github.com/cesardeazevedo/react-native-nested-scroll-view/issues/16)
-      super.fling(velocityY);
       // END FB SCROLLVIEW CHANGE
-    } else {
-      super.fling(correctedVelocityY);
     }
-    handlePostTouchScrolling(0, correctedVelocityY);
+
+    super.onOverScrolled(scrollX, scrollY, clampedX, clampedY);
   }
 
   private void enableFpsListener() {
@@ -380,31 +422,15 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
     return mFpsListener != null && mScrollPerfTag != null && !mScrollPerfTag.isEmpty();
   }
 
-  private int getMaxScrollY() {
-    int contentHeight = mContentView.getHeight();
-    int viewportHeight = getHeight() - getPaddingBottom() - getPaddingTop();
-    return Math.max(0, contentHeight - viewportHeight);
-  }
-
   @Override
   public void draw(Canvas canvas) {
     if (mEndFillColor != Color.TRANSPARENT) {
       final View content = getChildAt(0);
-      if (mEndBackground != null && content != null && content.getBottom() < getHeight()) {
-        mEndBackground.setBounds(0, content.getBottom(), getWidth(), getHeight());
+      if (mEndBackground != null && content != null && content.getRight() < getWidth()) {
+        mEndBackground.setBounds(content.getRight(), 0, getWidth(), getHeight());
         mEndBackground.draw(canvas);
       }
     }
-    getDrawingRect(mRect);
-
-    switch (mOverflow) {
-      case ViewProps.VISIBLE:
-        break;
-      default:
-        canvas.clipRect(mRect);
-        break;
-    }
-
     super.draw(canvas);
   }
 
@@ -427,7 +453,6 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
     }
 
     if (mSendMomentumEvents) {
-      enableFpsListener();
       ReactScrollViewHelper.emitScrollMomentumBeginEvent(this);
     }
 
@@ -441,7 +466,7 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
         if (mActivelyScrolling) {
           // We are still scrolling so we just post to check again a frame later
           mActivelyScrolling = false;
-          ViewCompat.postOnAnimationDelayed(ReactNestedScrollView.this,
+          ViewCompat.postOnAnimationDelayed(ReactHorizontalScrollView.this,
             this,
             ReactScrollViewHelper.MOMENTUM_DELAY);
         } else {
@@ -450,25 +475,25 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
             // need to continue checking for the scroll.  And we cause that scroll by asking for it
             mSnappingToPage = true;
             flingAndSnap(0);
-            ViewCompat.postOnAnimationDelayed(ReactNestedScrollView.this,
+            ViewCompat.postOnAnimationDelayed(ReactHorizontalScrollView.this,
               this,
               ReactScrollViewHelper.MOMENTUM_DELAY);
           } else {
             if (mSendMomentumEvents) {
-              ReactScrollViewHelper.emitScrollMomentumEndEvent(ReactNestedScrollView.this);
+              ReactScrollViewHelper.emitScrollMomentumEndEvent(ReactHorizontalScrollView.this);
             }
-            ReactNestedScrollView.this.mPostTouchRunnable = null;
+            ReactHorizontalScrollView.this.mPostTouchRunnable = null;
             disableFpsListener();
           }
         }
       }
     };
-    ViewCompat.postOnAnimationDelayed(ReactNestedScrollView.this,
+    ViewCompat.postOnAnimationDelayed(ReactHorizontalScrollView.this,
       mPostTouchRunnable,
       ReactScrollViewHelper.MOMENTUM_DELAY);
   }
 
-  private int predictFinalScrollPosition(int velocityY) {
+  private int predictFinalScrollPosition(int velocityX) {
     // ScrollView can *only* scroll for 250ms when using smoothScrollTo and there's
     // no way to customize the scroll duration. So, we create a temporary OverScroller
     // so we can predict where a fling would land and snap to nearby that point.
@@ -476,21 +501,21 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
     scroller.setFriction(1.0f - mDecelerationRate);
 
     // predict where a fling would end up so we can scroll to the nearest snap offset
-    int maximumOffset = getMaxScrollY();
-    int height = getHeight() - getPaddingBottom() - getPaddingTop();
+    int maximumOffset = Math.max(0, computeHorizontalScrollRange() - getWidth());
+    int width = getWidth() - ViewCompat.getPaddingStart(this) - ViewCompat.getPaddingEnd(this);
     scroller.fling(
       getScrollX(), // startX
       getScrollY(), // startY
-      0, // velocityX
-      velocityY, // velocityY
+      velocityX, // velocityX
+      0, // velocityY
       0, // minX
-      0, // maxX
+      maximumOffset, // maxX
       0, // minY
-      maximumOffset, // maxY
-      0, // overX
-      height/2 // overY
+      0, // maxY
+      width/2, // overX
+      0 // overY
     );
-    return scroller.getFinalY();
+    return scroller.getFinalX();
   }
 
   /**
@@ -500,7 +525,7 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
    */
   private void smoothScrollAndSnap(int velocity) {
     double interval = (double) getSnapInterval();
-    double currentOffset = (double) getScrollY();
+    double currentOffset = (double) getScrollX();
     double targetOffset = (double) predictFinalScrollPosition(velocity);
 
     int previousPage = (int) Math.floor(currentOffset / interval);
@@ -538,31 +563,45 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
     targetOffset = currentPage * interval;
     if (targetOffset != currentOffset) {
       mActivelyScrolling = true;
-      smoothScrollTo(getScrollX(), (int) targetOffset);
+      smoothScrollTo((int) targetOffset, getScrollY());
     }
   }
 
-  private void flingAndSnap(int velocityY) {
+  private void flingAndSnap(int velocityX) {
     if (getChildCount() <= 0) {
       return;
     }
 
     // pagingEnabled only allows snapping one interval at a time
     if (mSnapInterval == 0 && mSnapOffsets == null) {
-      smoothScrollAndSnap(velocityY);
+      smoothScrollAndSnap(velocityX);
       return;
     }
 
-    int maximumOffset = getMaxScrollY();
-    int targetOffset = predictFinalScrollPosition(velocityY);
+    int maximumOffset = Math.max(0, computeHorizontalScrollRange() - getWidth());
+    int targetOffset = predictFinalScrollPosition(velocityX);
+    if (mDisableIntervalMomentum) {
+      targetOffset = getScrollX();
+    }
+
     int smallerOffset = 0;
     int largerOffset = maximumOffset;
     int firstOffset = 0;
     int lastOffset = maximumOffset;
-    int height = getHeight() - getPaddingBottom() - getPaddingTop();
+    int width = getWidth() - ViewCompat.getPaddingStart(this) - ViewCompat.getPaddingEnd(this);
+
+    // offsets are from the right edge in RTL layouts
+    boolean isRTL = TextUtilsCompat.getLayoutDirectionFromLocale(Locale.getDefault()) == ViewCompat.LAYOUT_DIRECTION_RTL;
+    if (isRTL) {
+      targetOffset = maximumOffset - targetOffset;
+      velocityX = -velocityX;
+    }
 
     // get the nearest snap points to the target offset
     if (mSnapOffsets != null) {
+      firstOffset = mSnapOffsets.get(0);
+      lastOffset = mSnapOffsets.get(mSnapOffsets.size() - 1);
+
       for (int i = 0; i < mSnapOffsets.size(); i ++) {
         int offset = mSnapOffsets.get(i);
 
@@ -592,27 +631,33 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
 
     // if scrolling after the last snap offset and snapping to the
     // end of the list is disabled, then we allow free scrolling
+    int currentOffset = getScrollX();
+    if (isRTL) {
+      currentOffset = maximumOffset - currentOffset;
+    }
     if (!mSnapToEnd && targetOffset >= lastOffset) {
-      if (getScrollY() >= lastOffset) {
+      if (currentOffset >= lastOffset) {
         // free scrolling
       } else {
         // snap to end
         targetOffset = lastOffset;
       }
     } else if (!mSnapToStart && targetOffset <= firstOffset) {
-      if (getScrollY() <= firstOffset) {
+      if (currentOffset <= firstOffset) {
         // free scrolling
       } else {
         // snap to beginning
         targetOffset = firstOffset;
       }
-    } else if (velocityY > 0) {
+    } else if (velocityX > 0) {
       // when snapping velocity can feel sluggish for slow swipes
-      velocityY += (int) ((largerOffset - targetOffset) * 10.0);
+      velocityX += (int) ((largerOffset - targetOffset) * 10.0);
+
       targetOffset = largerOffset;
-    } else if (velocityY < 0) {
+    } else if (velocityX < 0) {
       // when snapping velocity can feel sluggish for slow swipes
-      velocityY -= (int) ((targetOffset - smallerOffset) * 10.0);
+      velocityX -= (int) ((targetOffset - smallerOffset) * 10.0);
+
       targetOffset = smallerOffset;
     } else {
       targetOffset = nearestOffset;
@@ -620,6 +665,11 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
 
     // Make sure the new offset isn't out of bounds
     targetOffset = Math.min(Math.max(0, targetOffset), maximumOffset);
+
+    if (isRTL) {
+      targetOffset = maximumOffset - targetOffset;
+      velocityX = -velocityX;
+    }
 
     // smoothScrollTo will always scroll over 250ms which is often *waaay*
     // too short and will cause the scrolling to feel almost instant
@@ -633,88 +683,22 @@ public class ReactNestedScrollView extends NestedScrollView implements ReactClip
         getScrollY(), // startY
         // velocity = 0 doesn't work with fling() so we pretend there's a reasonable
         // initial velocity going on when a touch is released without any movement
-        0, // velocityX
-        velocityY != 0 ? velocityY : targetOffset - getScrollY(), // velocityY
-        0, // minX
-        0, // maxX
-        // setting both minY and maxY to the same value will guarantee that we scroll to it
+        velocityX != 0 ? velocityX : targetOffset - getScrollX(), // velocityX
+        0, // velocityY
+        // setting both minX and maxX to the same value will guarantee that we scroll to it
         // but using the standard fling-style easing rather than smoothScrollTo's 250ms animation
-        targetOffset, // minY
-        targetOffset, // maxY
-        0, // overX
+        targetOffset, // minX
+        targetOffset, // maxX
+        0, // minY
+        0, // maxY
         // we only want to allow overscrolling if the final offset is at the very edge of the view
-        (targetOffset == 0 || targetOffset == maximumOffset) ? height / 2 : 0 // overY
+        (targetOffset == 0 || targetOffset == maximumOffset) ? width / 2 : 0, // overX
+        0 // overY
       );
 
       postInvalidateOnAnimation();
     } else {
-      smoothScrollTo(getScrollX(), targetOffset);
-    }
-  }
-
-  private int getSnapInterval() {
-    if (mSnapInterval != 0) {
-      return mSnapInterval;
-    }
-    return getHeight();
-  }
-
-  public void setEndFillColor(int color) {
-    if (color != mEndFillColor) {
-      mEndFillColor = color;
-      mEndBackground = new ColorDrawable(mEndFillColor);
-    }
-  }
-
-  @Override
-  protected void onOverScrolled(int scrollX, int scrollY, boolean clampedX, boolean clampedY) {
-    if (mScroller != null && mContentView != null) {
-      // FB SCROLLVIEW CHANGE
-
-      // This is part two of the reimplementation of fling to fix the bounce-back bug. See #fling() for
-      // more information.
-
-      if (!mScroller.isFinished() && mScroller.getCurrY() != mScroller.getFinalY()) {
-        int scrollRange = getMaxScrollY();
-        if (scrollY >= scrollRange) {
-          mScroller.abortAnimation();
-          scrollY = scrollRange;
-        }
-      }
-
-      // END FB SCROLLVIEW CHANGE
-    }
-
-    super.onOverScrolled(scrollX, scrollY, clampedX, clampedY);
-  }
-
-  @Override
-  public void onChildViewAdded(View parent, View child) {
-    mContentView = child;
-    mContentView.addOnLayoutChangeListener(this);
-  }
-
-  @Override
-  public void onChildViewRemoved(View parent, View child) {
-    mContentView.removeOnLayoutChangeListener(this);
-    mContentView = null;
-  }
-
-  /**
-   * Called when a mContentView's layout has changed. Fixes the scroll position if it's too large
-   * after the content resizes. Without this, the user would see a blank ScrollView when the scroll
-   * position is larger than the ScrollView's max scroll position after the content shrinks.
-   */
-  @Override
-  public void onLayoutChange(View v, int left, int top, int right, int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
-    if (mContentView == null) {
-      return;
-    }
-
-    int currentScrollY = getScrollY();
-    int maxScrollY = getMaxScrollY();
-    if (currentScrollY > maxScrollY) {
-      scrollTo(getScrollX(), maxScrollY);
+      smoothScrollTo(targetOffset, getScrollY());
     }
   }
 

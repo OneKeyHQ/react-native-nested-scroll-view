@@ -1,7 +1,5 @@
 package com.rnnestedscrollview;
 
-import com.facebook.react.views.scroll.ReactHorizontalScrollViewManager;
-
 /**
  * react-native@0.49.0 introduces a weird breaking change that don't allow us to use
  * requireNativeComponent twice of the same view name, and since we are using the same
