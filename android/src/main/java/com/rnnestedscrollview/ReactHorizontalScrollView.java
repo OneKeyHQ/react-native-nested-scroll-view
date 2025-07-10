@@ -32,7 +32,6 @@ import com.facebook.react.uimanager.events.NativeGestureUtil;
 import com.facebook.react.views.scroll.FpsListener;
 import com.facebook.react.views.scroll.OnScrollDispatchHelper;
 import com.facebook.react.views.scroll.VelocityHelper;
-import com.facebook.react.views.view.ReactViewBackgroundManager;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -74,7 +73,6 @@ public class ReactHorizontalScrollView extends HorizontalScrollView implements
   private @Nullable List<Integer> mSnapOffsets;
   private boolean mSnapToStart = true;
   private boolean mSnapToEnd = true;
-  private ReactViewBackgroundManager mReactBackgroundManager;
 
   public ReactHorizontalScrollView(Context context) {
     this(context, null);
@@ -82,7 +80,6 @@ public class ReactHorizontalScrollView extends HorizontalScrollView implements
 
   public ReactHorizontalScrollView(Context context, @Nullable FpsListener fpsListener) {
     super(context);
-    mReactBackgroundManager = new ReactViewBackgroundManager(this);
     mFpsListener = fpsListener;
 
     mScroller = getOverScrollerFromParent();
@@ -288,8 +285,8 @@ public class ReactHorizontalScrollView extends HorizontalScrollView implements
 
     // Workaround.
     // On Android P if a ScrollView is inverted, we will get a wrong sign for
-    // velocityX (see https://issuetracker.google.com/issues/112385925). 
-    // At the same time, mOnScrollDispatchHelper tracks the correct velocity direction. 
+    // velocityX (see https://issuetracker.google.com/issues/112385925).
+    // At the same time, mOnScrollDispatchHelper tracks the correct velocity direction.
     //
     // Hence, we can use the absolute value from whatever the OS gives
     // us and use the sign of what mOnScrollDispatchHelper has tracked.
@@ -702,29 +699,24 @@ public class ReactHorizontalScrollView extends HorizontalScrollView implements
     }
   }
 
-  @Override
-  public void setBackgroundColor(int color) {
-    mReactBackgroundManager.setBackgroundColor(color);
-  }
+  // @Override
+  // public void setBackgroundColor(int color) {
+  //   mReactBackgroundManager.setBackgroundColor(color);
+  // }
 
   public void setBorderWidth(int position, float width) {
-    mReactBackgroundManager.setBorderWidth(position, width);
   }
 
   public void setBorderColor(int position, float color, float alpha) {
-    mReactBackgroundManager.setBorderColor(position, color, alpha);
   }
 
   public void setBorderRadius(float borderRadius) {
-    mReactBackgroundManager.setBorderRadius(borderRadius);
   }
 
   public void setBorderRadius(float borderRadius, int position) {
-    mReactBackgroundManager.setBorderRadius(borderRadius, position);
   }
 
   public void setBorderStyle(@Nullable String style) {
-    mReactBackgroundManager.setBorderStyle(style);
   }
 
 }
